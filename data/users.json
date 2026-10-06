@@ -12,5 +12,12 @@
         "department": "Отдел закупок",
         "role": "Руководитель отдела закупок",
         "email": "petrov@example.com"
+    },
+    {
+        "id": 3,
+        "name": "Сидорова Анна",
+        "department": "Бухгалтерия",
+        "role": "Главный бухгалтер",
+        "email": "sidorova@example.com"
     }
 ]
