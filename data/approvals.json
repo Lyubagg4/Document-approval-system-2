@@ -1,0 +1,11 @@
+[
+    {
+        "id": 1,
+        "document_id": 1,
+        "user_id": 2,
+        "decision": "approved",
+        "comment": "Документ соответствует требованиям.",
+        "approval_date": "2026-10-06",
+        "is_cancelled": false
+    }
+]

@@ -1,120 +1,180 @@
-"""Система согласования документов.
+"""Точка запуска приложения (ПР2 — функциональная модель).
 
-Начальная версия приложения из ПР1. Реализован один законченный
-сценарий предметной области: проверка возможности согласования
-документа и вынесение решения. Используются только базовые конструкции
-Python: простые типы данных, операции, преобразование типов, ветвления,
-функции и импорт модулей.
-
-В ПР2 этот сценарий будет переработан: данные документа перейдут в
-коллекции, функции — в модули, добавится хранение в JSON. В ПР3 —
-преобразуется в объектную модель на классах Document, User и Approval.
+Меню приложения и вызов функций работы с документами, пользователями и
+согласованиями. Данные хранятся в словарях и списках, сохраняются в JSON.
 """
 
+import os
 from datetime import date
 
-
-def get_status_label(status):
-    """Возвращает название статуса документа."""
-    if status == "approved":
-        return "Согласован"
-    elif status == "rejected":
-        return "Отклонён"
-    return "На согласовании"
-
-
-def check_document_data(title, author, approver):
-    """Проверяет, заполнены ли основные данные документа."""
-    if title == "":
-        return "Ошибка: не указано название документа."
-    elif author == "":
-        return "Ошибка: не указан автор документа."
-    elif approver == "":
-        return "Ошибка: не указан согласующий."
-    return "Данные документа заполнены."
-
-
-def check_deadline(current_date, deadline):
-    """Проверяет, не истёк ли срок согласования."""
-    if current_date > deadline:
-        return "Срок согласования истёк."
-    return "Срок согласования не истёк."
-
-
-def can_approve_document(author, approver):
-    """Проверяет, может ли пользователь согласовать документ."""
-    if author == approver:
-        return "Ошибка: автор не может согласовать собственный документ."
-    return "Согласующий может принять решение."
-
-
-def make_decision(decision_code, comment):
-    """Формирует результат согласования документа."""
-    if decision_code == 1:
-        return "Документ согласован."
-    elif decision_code == 2:
-        return "Документ отклонён. Комментарий: " + comment
-    return "Ошибка: необходимо выбрать 1 или 2."
-
-
-print("=== Система согласования документов ===")
-
-doc_title = "Договор поставки оборудования № 45"
-doc_type = "Договор"
-
-author_name = "Иванов Иван"
-author_department = "Юридический отдел"
-
-approver_name = "Петров Пётр"
-approver_role = "Руководитель отдела закупок"
-
-comment_text = "Документ соответствует требованиям."
-
-deadline = date(2026, 10, 15)
-
-print("\n--- Проверка документа ---")
-
-data_result = check_document_data(
-    doc_title,
-    author_name,
-    approver_name
+from approvals import (
+    can_approve_document,
+    cancel_approval,
+    create_approval,
+    get_approval_status,
+    show_approvals,
 )
-print(data_result)
-
-deadline_result = check_deadline(date.today(), deadline)
-print(deadline_result)
-
-approval_result = can_approve_document(
-    author_name,
-    approver_name
+from documents import (
+    add_document,
+    find_document,
+    find_document_by_id,
+    show_documents,
+    sort_documents_by_deadline,
 )
-print(approval_result)
+from storage import (
+    load_approvals,
+    load_documents,
+    load_users,
+    save_approvals,
+    save_documents,
+    save_users,
+)
+from users import (
+    add_user,
+    find_user,
+    find_user_by_id,
+    show_users,
+)
+from utils import input_date, input_int, input_str
 
-if (
-    data_result == "Данные документа заполнены."
-    and deadline_result == "Срок согласования не истёк."
-    and approval_result == "Согласующий может принять решение."
-):
-    print("\n--- Согласование документа ---")
-    print("1 — Согласовать")
-    print("2 — Отклонить")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+DOCUMENTS_FILE = os.path.join(DATA_DIR, "documents.json")
+USERS_FILE = os.path.join(DATA_DIR, "users.json")
+APPROVALS_FILE = os.path.join(DATA_DIR, "approvals.json")
 
-    decision = int(input("Введите номер решения: "))
 
-    result = make_decision(decision, comment_text)
+def main() -> None:
+    """Точка запуска приложения."""
+    print("=== Система согласования документов ===")
 
-    print("\n--- Результат ---")
-    print(f"Документ: {doc_title}")
-    print(f"Тип: {doc_type}")
-    print(f"Автор: {author_name}")
-    print(f"Согласующий: {approver_name}")
-    print(
-        "Статус: "
-        + get_status_label(
-            "approved" if decision == 1 else "rejected"
-        )
-    )
-    print(f"Решение: {result}")
+    documents = load_documents(DOCUMENTS_FILE)
+    users = load_users(USERS_FILE)
+    approvals = load_approvals(APPROVALS_FILE)
 
-else:
-    print("\nДокумент не может быть отправлен на согласование.")
+    while True:
+        print("\n--- Главное меню ---")
+        print("1. Показать документы")
+        print("2. Найти документ по названию")
+        print("3. Отсортировать документы по сроку")
+        print("4. Показать пользователей")
+        print("5. Найти пользователя")
+        print("6. Добавить документ")
+        print("7. Добавить пользователя")
+        print("8. Проверить возможность согласования")
+        print("9. Создать согласование")
+        print("10. Отменить согласование")
+        print("11. Показать согласования")
+        print("12. Показать статус документа")
+        print("0. Выход")
+
+        choice = input_int("Выберите действие: ")
+        if choice == 0:
+            break
+        if choice == 1:
+            show_documents(documents, approvals)
+        elif choice == 2:
+            query = input_str("Введите подстроку: ")
+            found = find_document(documents, query)
+            found_dict = {d["id"]: d for d in found}
+            show_documents(found_dict, approvals)
+        elif choice == 3:
+            sorted_docs = sort_documents_by_deadline(documents)
+            found_dict = {d["id"]: d for d in sorted_docs}
+            show_documents(found_dict, approvals)
+        elif choice == 4:
+            show_users(users)
+        elif choice == 5:
+            query = input_str("Введите подстроку: ")
+            found = find_user(users, query)
+            found_dict = {u["id"]: u for u in found}
+            show_users(found_dict)
+        elif choice == 6:
+            show_users(users)
+            author_id = input_int("ID автора: ")
+            author = find_user_by_id(users, author_id)
+            if not author:
+                print("Ошибка: пользователь не найден.")
+                continue
+            title = input_str("Название документа: ")
+            doc_type = input_str("Тип документа: ")
+            deadline = input_date("Срок (ДД.ММ.ГГГГ): ")
+            add_document(documents, title, doc_type, author_id, deadline)
+            print("Документ добавлен.")
+        elif choice == 7:
+            name = input_str("ФИО: ")
+            department = input_str("Подразделение: ")
+            role = input_str("Должность: ")
+            email = input_str("Email: ")
+            add_user(users, name, department, role, email)
+            print("Пользователь добавлен.")
+        elif choice == 8:
+            show_documents(documents, approvals)
+            doc_id = input_int("ID документа: ")
+            document = find_document_by_id(documents, doc_id)
+            if not document:
+                print("Ошибка: документ не найден.")
+                continue
+            show_users(users)
+            user_id = input_int("ID согласующего: ")
+            user = find_user_by_id(users, user_id)
+            if not user:
+                print("Ошибка: пользователь не найден.")
+                continue
+            allowed, message = can_approve_document(
+                approvals, document, user, date.today()
+            )
+            print(message)
+        elif choice == 9:
+            show_documents(documents, approvals)
+            doc_id = input_int("ID документа: ")
+            document = find_document_by_id(documents, doc_id)
+            if not document:
+                print("Ошибка: документ не найден.")
+                continue
+            show_users(users)
+            user_id = input_int("ID согласующего: ")
+            user = find_user_by_id(users, user_id)
+            if not user:
+                print("Ошибка: пользователь не найден.")
+                continue
+            print("1 — Согласовать, 2 — Отклонить")
+            code = input_int("Решение: ")
+            decision = "approved" if code == 1 else "rejected"
+            comment = input_str("Комментарий: ")
+            approval = create_approval(
+                approvals, document, user, decision,
+                comment, date.today()
+            )
+            if approval:
+                print(f"Согласование #{approval['id']} создано.")
+            else:
+                print("Согласование не создано: нарушены правила.")
+        elif choice == 10:
+            show_approvals(approvals, documents, users)
+            approval_id = input_int("ID согласования: ")
+            if cancel_approval(approvals, approval_id):
+                print(f"Согласование #{approval_id} отменено.")
+            else:
+                print("Ошибка: согласование не найдено.")
+        elif choice == 11:
+            show_approvals(approvals, documents, users)
+        elif choice == 12:
+            show_documents(documents, approvals)
+            doc_id = input_int("ID документа: ")
+            document = find_document_by_id(documents, doc_id)
+            if not document:
+                print("Ошибка: документ не найден.")
+                continue
+            status = get_approval_status(approvals, document)
+            print(f"Статус документа: {status}")
+        else:
+            print("Ошибка: неверный номер действия.")
+
+    save_documents(DOCUMENTS_FILE, documents)
+    save_users(USERS_FILE, users)
+    save_approvals(APPROVALS_FILE, approvals)
+    print("\nДанные сохранены. До свидания!")
+
+
+if __name__ == "__main__":
+    main()
