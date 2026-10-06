@@ -1,12 +1,13 @@
-"""Модуль класса User и функций работы с пользователями.
+"""Модуль класса User и CRUD-функций работы с пользователями.
 
 Пользователь — сотрудник организации, который может выступать как автором
-документа, так и согласующим. Класс User описывает данные пользователя и
-базовое строковое представление; функции модуля работают с коллекцией
-пользователей: добавление, поиск и вывод списка.
+документа, так и согласующим.
+
+Для коллекции пользователей реализован базовый набор операций: создание,
+поиск по идентификатору, обновление, удаление и вывод списка.
 """
 
-from typing import List
+from typing import List, Optional
 
 
 class User:
@@ -28,15 +29,7 @@ class User:
         role: str,
         email: str,
     ) -> None:
-        """Создать объект пользователя.
-
-        Args:
-            user_id: идентификатор пользователя;
-            name: ФИО пользователя;
-            department: подразделение;
-            role: должность;
-            email: адрес электронной почты.
-        """
+        """Создать объект пользователя."""
         self.id = user_id
         self.name = name
         self.department = department
@@ -52,14 +45,7 @@ class User:
 
     @classmethod
     def from_data(cls, data: dict) -> "User":
-        """Создать пользователя из словаря данных JSON.
-
-        Args:
-            data: словарь с ключами id, name, department, role, email.
-
-        Returns:
-            Объект User.
-        """
+        """Создать пользователя из словаря данных JSON."""
         return cls(
             user_id=data["id"],
             name=data["name"],
@@ -69,11 +55,7 @@ class User:
         )
 
     def to_dict(self) -> dict:
-        """Преобразовать пользователя в словарь для JSON.
-
-        Returns:
-            Словарь с полями пользователя.
-        """
+        """Преобразовать пользователя в словарь для JSON."""
         return {
             "id": self.id,
             "name": self.name,
@@ -90,7 +72,7 @@ def add_user(
     role: str,
     email: str,
 ) -> User:
-    """Добавить пользователя в коллекцию.
+    """Создать пользователя и добавить его в коллекцию.
 
     Args:
         users: коллекция пользователей;
@@ -102,7 +84,7 @@ def add_user(
     Returns:
         Созданный объект User.
     """
-    next_id = _next_user_id(users)
+    next_id = _next_id(users)
     user = User(
         user_id=next_id,
         name=name,
@@ -116,27 +98,8 @@ def add_user(
 
 def find_user(
     users: List[User],
-    query: str,
-) -> List[User]:
-    """Найти пользователей по подстроке ФИО или email.
-
-    Args:
-        users: коллекция пользователей;
-        query: подстрока поиска.
-
-    Returns:
-        Список найденных пользователей.
-    """
-    query_lower = query.lower()
-    return [
-        user
-        for user in users
-        if query_lower in user.name.lower()
-        or query_lower in user.email.lower()
-    ]
-
-
-def find_user_by_id(users: List[User], user_id: int) -> User | None:
+    user_id: int,
+) -> Optional[User]:
     """Найти пользователя по идентификатору.
 
     Args:
@@ -150,6 +113,63 @@ def find_user_by_id(users: List[User], user_id: int) -> User | None:
         if user.id == user_id:
             return user
     return None
+
+
+def update_user(
+    users: List[User],
+    user_id: int,
+    name: Optional[str] = None,
+    department: Optional[str] = None,
+    role: Optional[str] = None,
+    email: Optional[str] = None,
+) -> bool:
+    """Обновить данные пользователя.
+
+    Обновляются только переданные поля. Идентификатор не меняется.
+
+    Args:
+        users: коллекция пользователей;
+        user_id: идентификатор пользователя;
+        name: новое ФИО (если передано);
+        department: новое подразделение (если передано);
+        role: новая должность (если передано);
+        email: новый email (если передано).
+
+    Returns:
+        True, если пользователь найден и обновлён.
+    """
+    user = find_user(users, user_id)
+    if user is None:
+        return False
+    if name is not None:
+        user.name = name
+    if department is not None:
+        user.department = department
+    if role is not None:
+        user.role = role
+    if email is not None:
+        user.email = email
+    return True
+
+
+def delete_user(
+    users: List[User],
+    user_id: int,
+) -> bool:
+    """Удалить пользователя из коллекции.
+
+    Args:
+        users: коллекция пользователей;
+        user_id: идентификатор пользователя.
+
+    Returns:
+        True, если пользователь найден и удалён.
+    """
+    user = find_user(users, user_id)
+    if user is None:
+        return False
+    users.remove(user)
+    return True
 
 
 def show_users(users: List[User]) -> None:
@@ -166,15 +186,8 @@ def show_users(users: List[User]) -> None:
         print(user)
 
 
-def _next_user_id(users: List[User]) -> int:
-    """Вычислить следующий идентификатор пользователя.
-
-    Args:
-        users: коллекция пользователей.
-
-    Returns:
-        Значение на единицу больше максимального существующего id.
-    """
+def _next_id(users: List[User]) -> int:
+    """Вычислить следующий идентификатор пользователя."""
     if not users:
         return 1
     return max(user.id for user in users) + 1

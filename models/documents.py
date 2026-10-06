@@ -1,24 +1,16 @@
-"""Модуль класса Document и функций работы с коллекцией документов.
+"""Модуль класса Document и CRUD-функций работы с документами.
 
 Документ — основная сущность системы согласования. У каждого документа
-есть название, тип, автор, срок согласования и текущий статус. Статус
-вычисляется на основе списка согласований: если есть согласование с
-решением «approved» — документ согласован, если «rejected» — отклонён,
-иначе — на согласовании.
+есть название, тип, автор и срок согласования.
 
-Модуль также содержит функции работы с коллекцией документов:
-добавление, поиск, фильтрация и сортировка. Эти функции остаются
-обычными функциями, так как они оперируют коллекцией, а не отдельным
-документом.
+Для коллекции документов реализован базовый набор операций: создание,
+поиск по идентификатору, обновление, удаление и вывод списка.
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import List, Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .approvals import Approval
+from typing import List, Optional
 
 
 class Document:
@@ -40,101 +32,24 @@ class Document:
         author_id: int,
         deadline: date,
     ) -> None:
-        """Создать объект документа.
-
-        Args:
-            doc_id: идентификатор документа;
-            title: название документа;
-            doc_type: тип документа;
-            author_id: идентификатор автора документа;
-            deadline: крайний срок согласования.
-        """
+        """Создать объект документа."""
         self.id = doc_id
         self.title = title
         self.doc_type = doc_type
         self.author_id = author_id
         self.deadline = deadline
 
-    def is_overdue(self, current_date: date) -> bool:
-        """Проверить, истёк ли срок согласования документа.
-
-        Args:
-            current_date: текущая дата для сравнения.
-
-        Returns:
-            True, если срок согласования истёк.
-        """
-        return current_date > self.deadline
-
-    def get_status(self, approvals: List[Approval]) -> str:
-        """Определить статус документа по списку согласований.
-
-        Статусы: «approved» — согласован, «rejected» — отклонён,
-        «pending» — на согласовании.
-
-        Args:
-            approvals: коллекция согласований документа.
-
-        Returns:
-            Код статуса документа.
-        """
-        for approval in approvals:
-            if approval.document_id != self.id:
-                continue
-            if approval.is_cancelled:
-                continue
-            if approval.decision == "approved":
-                return "approved"
-            if approval.decision == "rejected":
-                return "rejected"
-        return "pending"
-
-    def get_status_label(self, approvals: List[Approval]) -> str:
-        """Вернуть текстовое представление статуса документа.
-
-        Args:
-            approvals: коллекция согласований документа.
-
-        Returns:
-            Одно из значений: «Согласован», «Отклонён», «На согласовании».
-        """
-        status = self.get_status(approvals)
-        if status == "approved":
-            return "Согласован"
-        if status == "rejected":
-            return "Отклонён"
-        return "На согласовании"
-
     def __str__(self) -> str:
         """Вернуть строковое представление документа."""
         return (
             f"Документ #{self.id}: {self.title} "
-            f"({self.doc_type}), срок {self.deadline.strftime('%d.%m.%Y')}"
+            f"({self.doc_type}), срок "
+            f"{self.deadline.strftime('%d.%m.%Y')}"
         )
-
-    @staticmethod
-    def validate_title(title: str) -> bool:
-        """Проверить корректность названия документа.
-
-        Args:
-            title: название документа.
-
-        Returns:
-            True, если название не пустое после обрезки пробелов.
-        """
-        return bool(title and title.strip())
 
     @classmethod
     def from_data(cls, data: dict) -> "Document":
-        """Создать объект документа из словаря данных JSON.
-
-        Args:
-            data: словарь с ключами id, title, doc_type,
-                author_id, deadline.
-
-        Returns:
-            Объект Document.
-        """
+        """Создать объект документа из словаря данных JSON."""
         deadline_str = data["deadline"]
         if isinstance(deadline_str, date):
             deadline_value = deadline_str
@@ -149,11 +64,7 @@ class Document:
         )
 
     def to_dict(self) -> dict:
-        """Преобразовать объект документа в словарь для JSON.
-
-        Returns:
-            Словарь с ключами id, title, doc_type, author_id, deadline.
-        """
+        """Преобразовать объект документа в словарь для JSON."""
         return {
             "id": self.id,
             "title": self.title,
@@ -170,7 +81,7 @@ def add_document(
     author_id: int,
     deadline: date,
 ) -> Document:
-    """Добавить документ в коллекцию.
+    """Создать документ и добавить его в коллекцию.
 
     Args:
         documents: коллекция документов;
@@ -182,7 +93,7 @@ def add_document(
     Returns:
         Созданный объект Document.
     """
-    next_id = _next_document_id(documents)
+    next_id = _next_id(documents)
     document = Document(
         doc_id=next_id,
         title=title,
@@ -195,29 +106,6 @@ def add_document(
 
 
 def find_document(
-    documents: List[Document],
-    query: str,
-) -> List[Document]:
-    """Найти документы по подстроке названия.
-
-    Поиск регистронезависимый.
-
-    Args:
-        documents: коллекция документов;
-        query: подстрока для поиска.
-
-    Returns:
-        Список документов, в названии которых встречается query.
-    """
-    query_lower = query.lower()
-    return [
-        document
-        for document in documents
-        if query_lower in document.title.lower()
-    ]
-
-
-def find_document_by_id(
     documents: List[Document],
     doc_id: int,
 ) -> Optional[Document]:
@@ -236,71 +124,76 @@ def find_document_by_id(
     return None
 
 
-def filter_documents_by_type(
+def update_document(
     documents: List[Document],
-    doc_type: str,
-) -> List[Document]:
-    """Отобрать документы указанного типа.
+    doc_id: int,
+    title: Optional[str] = None,
+    doc_type: Optional[str] = None,
+    deadline: Optional[date] = None,
+) -> bool:
+    """Обновить данные документа.
+
+    Обновляются только переданные поля. Идентификаторы документа и автора
+    не меняются: автор задаётся при создании и остаётся неизменным.
 
     Args:
         documents: коллекция документов;
-        doc_type: тип документа.
+        doc_id: идентификатор документа;
+        title: новое название (если передано);
+        doc_type: новый тип (если передано);
+        deadline: новый срок (если передано).
 
     Returns:
-        Список документов выбранного типа.
+        True, если документ найден и обновлён.
     """
-    return [
-        document
-        for document in documents
-        if document.doc_type == doc_type
-    ]
+    document = find_document(documents, doc_id)
+    if document is None:
+        return False
+    if title is not None:
+        document.title = title
+    if doc_type is not None:
+        document.doc_type = doc_type
+    if deadline is not None:
+        document.deadline = deadline
+    return True
 
 
-def sort_documents_by_deadline(
+def delete_document(
     documents: List[Document],
-) -> List[Document]:
-    """Отсортировать документы по сроку согласования.
+    doc_id: int,
+) -> bool:
+    """Удалить документ из коллекции.
 
-    Сортировка выполняется по возрастанию даты. Используется
-    lambda-функция в качестве ключа сортировки.
+    Args:
+        documents: коллекция документов;
+        doc_id: идентификатор документа.
+
+    Returns:
+        True, если документ найден и удалён.
+    """
+    document = find_document(documents, doc_id)
+    if document is None:
+        return False
+    documents.remove(document)
+    return True
+
+
+def show_documents(documents: List[Document]) -> None:
+    """Вывести список документов.
 
     Args:
         documents: коллекция документов.
-
-    Returns:
-        Новый список документов, упорядоченный по сроку.
-    """
-    return sorted(documents, key=lambda document: document.deadline)
-
-
-def show_documents(
-    documents: List[Document],
-    approvals: List[Approval],
-) -> None:
-    """Вывести список документов с их статусами.
-
-    Args:
-        documents: коллекция документов;
-        approvals: коллекция согласований.
     """
     if not documents:
         print("Список документов пуст.")
         return
     print("\n--- Документы ---")
     for document in documents:
-        status_label = document.get_status_label(approvals)
-        print(f"{document} | Статус: {status_label}")
+        print(document)
 
 
-def _next_document_id(documents: List[Document]) -> int:
-    """Вычислить следующий идентификатор документа.
-
-    Args:
-        documents: коллекция документов.
-
-    Returns:
-        Значение на единицу больше максимального существующего id.
-    """
+def _next_id(documents: List[Document]) -> int:
+    """Вычислить следующий идентификатор документа."""
     if not documents:
         return 1
     return max(document.id for document in documents) + 1

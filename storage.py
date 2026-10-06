@@ -11,7 +11,8 @@ import os
 from typing import List
 
 from models import Approval, Document, User
-from models.approvals import find_document_in_list, find_user_in_list
+from models.documents import find_document
+from models.users import find_user
 
 
 def load_documents(filename: str) -> List[Document]:
@@ -84,8 +85,8 @@ def load_approvals(
     data = _load_json(filename)
     approvals: List[Approval] = []
     for item in data:
-        document = find_document_in_list(documents, item["document_id"])
-        user = find_user_in_list(users, item["user_id"])
+        document = find_document(documents, item["document_id"])
+        user = find_user(users, item["user_id"])
         if document is None or user is None:
             continue
         approval = Approval.from_data(item)

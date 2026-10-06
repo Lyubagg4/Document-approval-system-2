@@ -1,61 +1,36 @@
-"""Автоматизированные тесты класса Approval и функций согласований.
+"""Автоматизированные тесты класса Approval и CRUD-функций.
 
 Проверяются:
-    * создание объекта Approval и атрибуты;
-    * метод cancel() и флаг is_cancelled;
+    * создание объекта Approval и значения его атрибутов;
     * строковое представление __str__;
-    * правило «автор не может согласовать собственный документ»;
-    * правило «нельзя создать два активных согласования одного документа»;
-    * отмена согласования разблокирует документ;
-    * правило «срок согласования не должен быть истёк»;
-    * отмена согласования по идентификатору.
+    * метод класса from_data и to_dict (преобразование в/из JSON);
+    * добавление согласования в коллекцию (Create) с проверкой правил;
+    * поиск согласования по идентификатору (Read);
+    * обновление данных согласования (Update);
+    * удаление согласования из коллекции (Delete);
+    * бизнес-правила: автор не может согласовать свой документ,
+      на один документ — не более одного активного согласования.
 """
 
 from datetime import date
 
-from models import Approval, Document, User
+from models import Approval, Document
 from models.approvals import (
-    can_approve_document,
-    cancel_approval,
-    create_approval,
-    find_approval_by_id,
-    is_document_open_for_approval,
+    add_approval,
+    delete_approval,
+    find_approval,
+    update_approval,
 )
 
 
-def make_document(author_id: int = 1) -> Document:
-    """Создать тестовый документ.
-
-    Args:
-        author_id: идентификатор автора.
-
-    Returns:
-        Объект Document.
-    """
+def make_document(doc_id: int = 1, author_id: int = 1) -> Document:
+    """Создать тестовый документ."""
     return Document(
-        doc_id=1,
+        doc_id=doc_id,
         title="Договор поставки № 45",
         doc_type="Договор",
         author_id=author_id,
         deadline=date(2026, 12, 31),
-    )
-
-
-def make_user(user_id: int = 2) -> User:
-    """Создать тестового пользователя.
-
-    Args:
-        user_id: идентификатор пользователя.
-
-    Returns:
-        Объект User.
-    """
-    return User(
-        user_id=user_id,
-        name="Петров Пётр",
-        department="Отдел закупок",
-        role="Руководитель",
-        email="petrov@example.com",
     )
 
 
@@ -78,21 +53,6 @@ def test_approval_creation():
     assert approval.is_cancelled is False
 
 
-def test_approval_cancel():
-    """Метод cancel() меняет состояние согласования."""
-    approval = Approval(
-        approval_id=1,
-        document_id=1,
-        user_id=2,
-        decision="approved",
-        comment="Ок",
-        approval_date=date(2026, 10, 6),
-    )
-    assert approval.is_cancelled is False
-    approval.cancel()
-    assert approval.is_cancelled is True
-
-
 def test_approval_str():
     """Строковое представление согласования."""
     approval = Approval(
@@ -108,8 +68,8 @@ def test_approval_str():
     assert "06.10.2026" in text
 
 
-def test_approval_str_cancelled():
-    """Строковое представление отменённого согласования."""
+def test_approval_from_data_and_to_dict():
+    """Преобразование согласования в словарь и обратно."""
     approval = Approval(
         approval_id=1,
         document_id=1,
@@ -117,60 +77,30 @@ def test_approval_str_cancelled():
         decision="approved",
         comment="Ок",
         approval_date=date(2026, 10, 6),
-        is_cancelled=True,
     )
-    text = str(approval)
-    assert "отменено" in text
+    data = approval.to_dict()
+    assert data["id"] == 1
+    assert data["document_id"] == 1
+    assert data["user_id"] == 2
+    assert data["approval_date"] == "2026-10-06"
+    restored = Approval.from_data(data)
+    assert restored.id == 1
+    assert restored.decision == "approved"
 
 
-def test_author_cannot_approve_own_document():
-    """Автор не может согласовать собственный документ."""
-    document = make_document(author_id=1)
-    user = User(
-        user_id=1,
-        name="Иванов Иван",
-        department="Юридический отдел",
-        role="Юрист",
-        email="ivanov@example.com",
-    )
-    approvals: list = []
-    allowed, message = can_approve_document(
-        approvals, document, user, date(2026, 10, 6)
-    )
-    assert allowed is False
-    assert "автор" in message.lower()
-
-
-def test_overdue_document_cannot_be_approved():
-    """Документ с истёкшим сроком нельзя согласовать."""
-    document = Document(
-        doc_id=1,
-        title="Договор",
-        doc_type="Договор",
-        author_id=1,
-        deadline=date(2026, 9, 1),
-    )
-    user = make_user(user_id=2)
-    approvals: list = []
-    allowed, message = can_approve_document(
-        approvals, document, user, date(2026, 10, 6)
-    )
-    assert allowed is False
-    assert "срок" in message.lower()
-
-
-def test_create_approval_success():
+def test_add_approval_success():
     """Создание согласования при выполнении всех правил."""
     document = make_document(author_id=1)
-    user = make_user(user_id=2)
+    documents = [document]
     approvals: list = []
-    approval = create_approval(
+    approval, message = add_approval(
         approvals,
-        document,
-        user,
-        "approved",
-        "Ок",
-        date(2026, 10, 6),
+        documents,
+        document_id=1,
+        user_id=2,
+        decision="approved",
+        comment="Ок",
+        current_date=date(2026, 10, 6),
     )
     assert approval is not None
     assert approval.id == 1
@@ -178,102 +108,146 @@ def test_create_approval_success():
     assert len(approvals) == 1
 
 
-def test_duplicate_approval_forbidden():
+def test_add_approval_unknown_document():
+    """Создание согласования для несуществующего документа."""
+    documents: list = []
+    approvals: list = []
+    approval, message = add_approval(
+        approvals,
+        documents,
+        document_id=999,
+        user_id=2,
+        decision="approved",
+        comment="",
+        current_date=date(2026, 10, 6),
+    )
+    assert approval is None
+    assert "документ" in message.lower()
+
+
+def test_add_approval_author_cannot_approve_own_document():
+    """Автор не может согласовать собственный документ."""
+    document = make_document(author_id=1)
+    documents = [document]
+    approvals: list = []
+    approval, message = add_approval(
+        approvals,
+        documents,
+        document_id=1,
+        user_id=1,
+        decision="approved",
+        comment="",
+        current_date=date(2026, 10, 6),
+    )
+    assert approval is None
+    assert "автор" in message.lower()
+
+
+def test_add_approval_duplicate_forbidden():
     """Нельзя создать два активных согласования одного документа."""
     document = make_document(author_id=1)
-    user = make_user(user_id=2)
+    documents = [document]
     approvals: list = []
-    first = create_approval(
+    first, _ = add_approval(
         approvals,
-        document,
-        user,
-        "approved",
-        "Ок",
-        date(2026, 10, 6),
+        documents,
+        document_id=1,
+        user_id=2,
+        decision="approved",
+        comment="Ок",
+        current_date=date(2026, 10, 6),
+    )
+    second, message = add_approval(
+        approvals,
+        documents,
+        document_id=1,
+        user_id=3,
+        decision="rejected",
+        comment="Не ок",
+        current_date=date(2026, 10, 6),
     )
     assert first is not None
-    second = create_approval(
-        approvals,
-        document,
-        user,
-        "rejected",
-        "Не ок",
-        date(2026, 10, 6),
-    )
     assert second is None
+    assert "уже" in message.lower()
     assert len(approvals) == 1
 
 
-def test_cancelled_approval_unblocks_document():
-    """Отмена согласования разблокирует документ."""
+def test_find_approval():
+    """Поиск согласования по идентификатору (Read)."""
     document = make_document(author_id=1)
-    user = make_user(user_id=2)
+    documents = [document]
     approvals: list = []
-    first = create_approval(
+    approval, _ = add_approval(
         approvals,
-        document,
-        user,
-        "approved",
-        "Ок",
-        date(2026, 10, 6),
+        documents,
+        document_id=1,
+        user_id=2,
+        decision="approved",
+        comment="Ок",
+        current_date=date(2026, 10, 6),
     )
-    assert first is not None
-    assert not is_document_open_for_approval(approvals, document.id)
-    first.cancel()
-    assert is_document_open_for_approval(approvals, document.id)
-    second = create_approval(
-        approvals,
-        document,
-        user,
-        "rejected",
-        "Не ок",
-        date(2026, 10, 6),
-    )
-    assert second is not None
-    assert len(approvals) == 2
+    found = find_approval(approvals, approval.id)
+    assert found is not None
+    assert found.id == approval.id
+    assert find_approval(approvals, 999) is None
 
 
-def test_cancel_approval_by_id():
-    """Отмена согласования по идентификатору."""
+def test_update_approval():
+    """Обновление данных согласования (Update)."""
     document = make_document(author_id=1)
-    user = make_user(user_id=2)
+    documents = [document]
     approvals: list = []
-    approval = create_approval(
+    approval, _ = add_approval(
         approvals,
-        document,
-        user,
-        "approved",
-        "Ок",
-        date(2026, 10, 6),
+        documents,
+        document_id=1,
+        user_id=2,
+        decision="approved",
+        comment="Ок",
+        current_date=date(2026, 10, 6),
     )
-    assert approval is not None
-    result = cancel_approval(approvals, approval.id)
+    result = update_approval(
+        approvals,
+        approval.id,
+        decision="rejected",
+        comment="Не подходит",
+        is_cancelled=True,
+    )
     assert result is True
+    assert approval.decision == "rejected"
+    assert approval.comment == "Не подходит"
     assert approval.is_cancelled is True
 
 
-def test_cancel_unknown_approval():
-    """Отмена несуществующего согласования возвращает False."""
+def test_update_unknown_approval():
+    """Обновление несуществующего согласования возвращает False."""
     approvals: list = []
-    result = cancel_approval(approvals, 999)
+    result = update_approval(approvals, 999, decision="approved")
     assert result is False
 
 
-def test_find_approval_by_id():
-    """Поиск согласования по идентификатору."""
+def test_delete_approval():
+    """Удаление согласования из коллекции (Delete)."""
     document = make_document(author_id=1)
-    user = make_user(user_id=2)
+    documents = [document]
     approvals: list = []
-    approval = create_approval(
+    approval, _ = add_approval(
         approvals,
-        document,
-        user,
-        "approved",
-        "Ок",
-        date(2026, 10, 6),
+        documents,
+        document_id=1,
+        user_id=2,
+        decision="approved",
+        comment="Ок",
+        current_date=date(2026, 10, 6),
     )
-    assert approval is not None
-    found = find_approval_by_id(approvals, approval.id)
-    assert found is not None
-    assert found.id == approval.id
-    assert find_approval_by_id(approvals, 999) is None
+    result = delete_approval(approvals, approval.id)
+    assert result is True
+    assert len(approvals) == 0
+    assert find_approval(approvals, approval.id) is None
+
+
+def test_delete_unknown_approval():
+    """Удаление несуществующего согласования возвращает False."""
+    approvals: list = []
+    result = delete_approval(approvals, 999)
+    assert result is False

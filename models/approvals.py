@@ -1,19 +1,20 @@
-"""Модуль класса Approval и функций работы с согласованиями.
+"""Модуль класса Approval и CRUD-функций работы с согласованиями.
 
 Согласование — действие согласующего по отношению к документу. У каждого
-согласования есть идентификатор, документ, согласующий, решение
-(approved/rejected), комментарий и признак отмены.
+согласования есть документ, согласующий, решение, комментарий и дата.
 
-Класс Approval хранит данные одного согласования и умеет отменять себя
-через метод cancel(). Функции модуля работают с коллекцией согласований:
-проверка возможности согласования, создание, отмена и вывод списка.
+Для коллекции согласований реализован базовый набор операций: создание,
+поиск по идентификатору, обновление, удаление и вывод списка. При создании
+выполняется проверка правил предметной области: автор не может
+согласовать собственный документ, и на один документ не может быть двух
+активных согласований.
 """
 
 from datetime import date
 from typing import List, Optional
 
-from .documents import Document
-from .users import User
+from .documents import Document, find_document
+from .users import User, find_user
 
 
 class Approval:
@@ -39,17 +40,7 @@ class Approval:
         approval_date: Optional[date] = None,
         is_cancelled: bool = False,
     ) -> None:
-        """Создать объект согласования.
-
-        Args:
-            approval_id: идентификатор согласования;
-            document_id: идентификатор документа;
-            user_id: идентификатор согласующего;
-            decision: код решения;
-            comment: текст комментария;
-            approval_date: дата согласования;
-            is_cancelled: признак отмены.
-        """
+        """Создать объект согласования."""
         self.id = approval_id
         self.document_id = document_id
         self.user_id = user_id
@@ -58,45 +49,23 @@ class Approval:
         self.approval_date = approval_date
         self.is_cancelled = is_cancelled
 
-    def cancel(self) -> None:
-        """Отменить согласование.
-
-        Отмена не удаляет объект из коллекции: меняется только признак
-        is_cancelled. Это позволяет сохранить историю согласований и
-        разблокировать документ для нового решения.
-        """
-        self.is_cancelled = True
-
     def __str__(self) -> str:
         """Вернуть строковое представление согласования."""
-        labels = {
-            "approved": "Согласован",
-            "rejected": "Отклонён",
-            "pending": "На согласовании",
-        }
-        decision_label = labels.get(self.decision, self.decision)
-        if self.is_cancelled:
-            decision_label = f"{decision_label} (отменено)"
         date_str = (
             self.approval_date.strftime("%d.%m.%Y")
             if self.approval_date
             else "—"
         )
+        state = "отменено" if self.is_cancelled else "активно"
         return (
             f"Согласование #{self.id} | Документ #{self.document_id} | "
-            f"Согласующий #{self.user_id} | {decision_label} | {date_str}"
+            f"Согласующий #{self.user_id} | "
+            f"Решение: {self.decision} | {date_str} | {state}"
         )
 
     @classmethod
     def from_data(cls, data: dict) -> "Approval":
-        """Создать согласование из словаря данных JSON.
-
-        Args:
-            data: словарь с полями согласования.
-
-        Returns:
-            Объект Approval.
-        """
+        """Создать согласование из словаря данных JSON."""
         raw_date = data.get("approval_date")
         if isinstance(raw_date, date):
             approval_date_value = raw_date
@@ -115,11 +84,7 @@ class Approval:
         )
 
     def to_dict(self) -> dict:
-        """Преобразовать согласование в словарь для JSON.
-
-        Returns:
-            Словарь с полями согласования.
-        """
+        """Преобразовать согласование в словарь для JSON."""
         return {
             "id": self.id,
             "document_id": self.document_id,
@@ -135,130 +100,58 @@ class Approval:
         }
 
 
-def can_approve_document(
+def add_approval(
     approvals: List[Approval],
-    document: Document,
-    user: User,
-    current_date: date,
-) -> tuple[bool, str]:
-    """Проверить возможность согласования документа пользователем.
-
-    Правила проверки:
-        * автор документа не может согласовать собственный документ;
-        * срок согласования не должен быть истёк;
-        * документ не должен иметь уже активного согласования.
-
-    Args:
-        approvals: коллекция согласований;
-        document: объект документа;
-        user: объект согласующего;
-        current_date: текущая дата.
-
-    Returns:
-        Кортеж (можно ли согласовать, пояснение).
-    """
-    if document.author_id == user.id:
-        return (
-            False,
-            "Ошибка: автор не может согласовать "
-            "собственный документ.",
-        )
-    if document.is_overdue(current_date):
-        return False, "Срок согласования истёк."
-    if not is_document_open_for_approval(approvals, document.id):
-        return False, "Документ уже имеет активное согласование."
-    return True, "Согласующий может принять решение."
-
-
-def is_document_open_for_approval(
-    approvals: List[Approval],
+    documents: List[Document],
     document_id: int,
-) -> bool:
-    """Проверить, доступен ли документ для нового согласования.
-
-    Документ недоступен, если уже имеет активное согласование.
-
-    Args:
-        approvals: коллекция согласований;
-        document_id: идентификатор документа.
-
-    Returns:
-        True, если документ можно согласовать.
-    """
-    for approval in approvals:
-        if approval.document_id != document_id:
-            continue
-        if approval.is_cancelled:
-            continue
-        return False
-    return True
-
-
-def create_approval(
-    approvals: List[Approval],
-    document: Document,
-    user: User,
+    user_id: int,
     decision: str,
     comment: str,
     current_date: date,
-) -> Optional[Approval]:
-    """Создать согласование документа.
+) -> tuple[Optional[Approval], str]:
+    """Создать согласование и добавить его в коллекцию.
 
-    Перед созданием выполняется проверка возможности согласования.
-    При нарушении правил согласование не создаётся.
+    Перед созданием выполняется проверка правил:
+        * автор документа не может согласовать собственный документ;
+        * на один документ не может быть двух активных согласований.
 
     Args:
         approvals: коллекция согласований;
-        document: объект документа;
-        user: объект согласующего;
+        documents: коллекция документов (для проверки автора);
+        document_id: идентификатор документа;
+        user_id: идентификатор согласующего;
         decision: код решения;
         comment: комментарий согласующего;
         current_date: текущая дата.
 
     Returns:
-        Созданный объект Approval или None.
+        Кортеж (созданное согласование или None, пояснение).
     """
-    allowed, _ = can_approve_document(
-        approvals, document, user, current_date
-    )
-    if not allowed:
-        return None
-    next_id = _next_approval_id(approvals)
+    document = find_document(documents, document_id)
+    if document is None:
+        return None, "Ошибка: документ не найден."
+    if document.author_id == user_id:
+        return (
+            None,
+            "Ошибка: автор не может согласовать "
+            "собственный документ.",
+        )
+    if _has_active_approval(approvals, document_id):
+        return None, "Ошибка: у документа уже есть активное согласование."
+    next_id = _next_id(approvals)
     approval = Approval(
         approval_id=next_id,
-        document_id=document.id,
-        user_id=user.id,
+        document_id=document_id,
+        user_id=user_id,
         decision=decision,
         comment=comment,
         approval_date=current_date,
     )
     approvals.append(approval)
-    return approval
+    return approval, "Согласование создано."
 
 
-def cancel_approval(
-    approvals: List[Approval],
-    approval_id: int,
-) -> bool:
-    """Отменить согласование по идентификатору.
-
-    Отмена не удаляет объект из коллекции: вызывается метод cancel().
-
-    Args:
-        approvals: коллекция согласований;
-        approval_id: идентификатор согласования.
-
-    Returns:
-        True, если согласование найдено и отменено.
-    """
-    for approval in approvals:
-        if approval.id == approval_id:
-            approval.cancel()
-            return True
-    return False
-
-
-def find_approval_by_id(
+def find_approval(
     approvals: List[Approval],
     approval_id: int,
 ) -> Optional[Approval]:
@@ -277,23 +170,58 @@ def find_approval_by_id(
     return None
 
 
-def get_approval_status(
+def update_approval(
     approvals: List[Approval],
-    document: Document,
-) -> str:
-    """Вернуть текстовый статус документа по его согласованиям.
+    approval_id: int,
+    decision: Optional[str] = None,
+    comment: Optional[str] = None,
+    is_cancelled: Optional[bool] = None,
+) -> bool:
+    """Обновить данные согласования.
 
-    Функция перенесена из ПР1 и адаптирована под объектную модель:
-    использует метод документа get_status_label().
+    Обновляются только переданные поля. Идентификаторы документа и
+    согласующего не меняются: они задаются при создании.
 
     Args:
         approvals: коллекция согласований;
-        document: объект документа.
+        approval_id: идентификатор согласования;
+        decision: новое решение (если передано);
+        comment: новый комментарий (если передано);
+        is_cancelled: новый признак отмены (если передано).
 
     Returns:
-        Строка со статусом документа.
+        True, если согласование найдено и обновлено.
     """
-    return document.get_status_label(approvals)
+    approval = find_approval(approvals, approval_id)
+    if approval is None:
+        return False
+    if decision is not None:
+        approval.decision = decision
+    if comment is not None:
+        approval.comment = comment
+    if is_cancelled is not None:
+        approval.is_cancelled = is_cancelled
+    return True
+
+
+def delete_approval(
+    approvals: List[Approval],
+    approval_id: int,
+) -> bool:
+    """Удалить согласование из коллекции.
+
+    Args:
+        approvals: коллекция согласований;
+        approval_id: идентификатор согласования.
+
+    Returns:
+        True, если согласование найдено и удалено.
+    """
+    approval = find_approval(approvals, approval_id)
+    if approval is None:
+        return False
+    approvals.remove(approval)
+    return True
 
 
 def show_approvals(
@@ -313,65 +241,33 @@ def show_approvals(
         return
     print("\n--- Согласования ---")
     for approval in approvals:
-        document = find_document_in_list(documents, approval.document_id)
-        user = find_user_in_list(users, approval.user_id)
+        document = find_document(documents, approval.document_id)
+        user = find_user(users, approval.user_id)
         doc_title = document.title if document else "—"
         user_name = user.name if user else "—"
+        state = "отменено" if approval.is_cancelled else "активно"
         print(
             f"#{approval.id} | {doc_title} | "
             f"Согласующий: {user_name} | "
-            f"Решение: {approval.decision} | "
-            f"Отменено: {'да' if approval.is_cancelled else 'нет'}"
+            f"Решение: {approval.decision} | {state}"
         )
 
 
-def find_document_in_list(
-    documents: List[Document],
-    doc_id: int,
-) -> Optional[Document]:
-    """Найти документ в коллекции по идентификатору.
-
-    Args:
-        documents: коллекция документов;
-        doc_id: идентификатор документа.
-
-    Returns:
-        Найденный документ или None.
-    """
-    for document in documents:
-        if document.id == doc_id:
-            return document
-    return None
+def _has_active_approval(
+    approvals: List[Approval],
+    document_id: int,
+) -> bool:
+    """Проверить, есть ли активное согласование у документа."""
+    for approval in approvals:
+        if approval.document_id != document_id:
+            continue
+        if not approval.is_cancelled:
+            return True
+    return False
 
 
-def find_user_in_list(
-    users: List[User],
-    user_id: int,
-) -> Optional[User]:
-    """Найти пользователя в коллекции по идентификатору.
-
-    Args:
-        users: коллекция пользователей;
-        user_id: идентификатор пользователя.
-
-    Returns:
-        Найденный пользователь или None.
-    """
-    for user in users:
-        if user.id == user_id:
-            return user
-    return None
-
-
-def _next_approval_id(approvals: List[Approval]) -> int:
-    """Вычислить следующий идентификатор согласования.
-
-    Args:
-        approvals: коллекция согласований.
-
-    Returns:
-        Значение на единицу больше максимального существующего id.
-    """
+def _next_id(approvals: List[Approval]) -> int:
+    """Вычислить следующий идентификатор согласования."""
     if not approvals:
         return 1
     return max(approval.id for approval in approvals) + 1
